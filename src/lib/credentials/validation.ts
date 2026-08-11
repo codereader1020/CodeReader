@@ -1,8 +1,9 @@
 import { CompanyEmployeeCredentialV1, ValidationResult } from './schema';
 import { verifyCredentialSignature } from './signing';
+import { parseAamvaDriverLicense } from './aamva';
 
 /**
- * Parses and validates an arbitrary text string to check if it matches CompanyEmployeeCredentialV1 schema
+ * Parses and validates an arbitrary text string to check if it matches CompanyCredential or AAMVA Driver's License
  */
 export async function validateEmployeeCredential(
   rawText: string,
@@ -10,7 +11,30 @@ export async function validateEmployeeCredential(
 ): Promise<ValidationResult> {
   const errors: string[] = [];
 
-  // 1. Try parsing JSON
+  // 1. Try parsing as AAMVA US/Canada Driver's License
+  const aamva = parseAamvaDriverLicense(rawText);
+  if (aamva) {
+    // Check expiration date if present
+    let status: ValidationResult['status'] = 'VALID';
+    if (aamva.expirationDate) {
+      const exp = new Date(aamva.expirationDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (!isNaN(exp.getTime()) && exp < today) {
+        status = 'EXPIRED';
+      }
+    }
+
+    return {
+      status,
+      isValid: status !== 'EXPIRED',
+      isAuthenticated: false, // AAMVA barcodes are unencrypted standard format
+      aamvaLicense: aamva,
+      errors: status === 'EXPIRED' ? [`Driver's License expired on ${aamva.expirationDate}`] : [],
+    };
+  }
+
+  // 2. Try parsing JSON
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawText);
@@ -19,8 +43,8 @@ export async function validateEmployeeCredential(
       status: 'INVALID',
       isValid: false,
       isAuthenticated: false,
-      reason: 'Raw text is not valid JSON.',
-      errors: ['Data is not valid JSON.'],
+      reason: 'Raw text is not valid JSON or AAMVA License format.',
+      errors: ['Data is not valid JSON or AAMVA License format.'],
     };
   }
 
@@ -36,7 +60,7 @@ export async function validateEmployeeCredential(
 
   const obj = parsed as Record<string, unknown>;
 
-  // 2. Validate Type & Version
+  // 3. Validate Type & Version
   if (obj.type !== 'company_employee_id') {
     return {
       status: 'INVALID',
@@ -57,7 +81,7 @@ export async function validateEmployeeCredential(
     };
   }
 
-  // 3. Required Fields Check
+  // 4. Required Fields Check
   if (!obj.employeeId || typeof obj.employeeId !== 'string' || obj.employeeId.trim() === '') {
     errors.push('Missing or empty required field: employeeId.');
   }
@@ -78,11 +102,10 @@ export async function validateEmployeeCredential(
 
   const credential = obj as unknown as CompanyEmployeeCredentialV1;
 
-  // 4. Date Expiration Check
+  // 5. Date Expiration Check
   if (credential.expiresAt) {
     const expires = new Date(credential.expiresAt);
     const today = new Date();
-    // Normalize time portion for fair date comparison
     today.setHours(0, 0, 0, 0);
 
     if (isNaN(expires.getTime())) {
@@ -99,7 +122,7 @@ export async function validateEmployeeCredential(
     }
   }
 
-  // 5. Signature Verification Check
+  // 6. Signature Verification Check
   let isAuthenticated = false;
   if (credential.signature) {
     if (verificationSecretKey) {

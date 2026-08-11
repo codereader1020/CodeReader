@@ -1,3 +1,5 @@
+import { AamvaDriverLicense } from './aamva';
+
 export interface CompanyEmployeeCredentialV1 {
   type: 'company_employee_id';
   version: 1;
@@ -29,5 +31,6 @@ export interface ValidationResult {
   isAuthenticated: boolean;
   reason?: string;
   credential?: CompanyEmployeeCredentialV1;
+  aamvaLicense?: AamvaDriverLicense;
   errors: string[];
 }

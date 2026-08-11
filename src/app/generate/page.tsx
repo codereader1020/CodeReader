@@ -14,16 +14,18 @@ import {
   UserCheck, 
   Link2,
   RefreshCw,
-  Lock
+  Lock,
+  IdCard
 } from 'lucide-react';
 import { generatePdf417 } from '@/lib/pdf417/encoder';
 import { EncodedBarcode, Pdf417Options } from '@/lib/pdf417/types';
 import { createEmployeeCredential } from '@/lib/credentials/serialization';
 import { signCredential } from '@/lib/credentials/signing';
+import { buildAamvaDriverLicensePayload } from '@/lib/credentials/aamva';
 import { saveHistoryItem } from '@/lib/history';
 
 export default function GeneratePage() {
-  const [activeTab, setActiveTab] = useState<'text' | 'json' | 'employee' | 'url'>('text');
+  const [activeTab, setActiveTab] = useState<'text' | 'json' | 'employee' | 'aamva' | 'url'>('text');
 
   // Input states
   const [rawText, setRawText] = useState('EMP-000123|John Doe|Engineering|Software Engineer');
@@ -56,6 +58,24 @@ export default function GeneratePage() {
     signKey: '',
   });
 
+  // AAMVA Driver's License form state
+  const [aamvaFields, setAamvaFields] = useState({
+    firstName: 'MICHAEL',
+    lastName: 'MOTORIST',
+    middleName: 'MATTHEW',
+    licenseNumber: '123456789',
+    state: 'NY',
+    dateOfBirth: '1978-08-31',
+    expirationDate: '2029-08-31',
+    issueDate: '2021-10-31',
+    gender: 'Male',
+    eyeColor: 'BLU',
+    height: '069 in',
+    streetAddress: '2345 ANYWHERE STREET',
+    city: 'YOUR CITY',
+    postalCode: '123450000',
+  });
+
   // URL state
   const [verificationUrl, setVerificationUrl] = useState('https://example.com/verify/EMP-000123');
 
@@ -82,7 +102,6 @@ export default function GeneratePage() {
     }
     if (activeTab === 'json') {
       try {
-        // Validate JSON format
         const parsed = JSON.parse(jsonText);
         return JSON.stringify(parsed);
       } catch (e) {
@@ -96,6 +115,12 @@ export default function GeneratePage() {
       }
       return JSON.stringify(credential);
     }
+    if (activeTab === 'aamva') {
+      if (!aamvaFields.lastName || !aamvaFields.firstName || !aamvaFields.licenseNumber) {
+        throw new Error('First Name, Last Name, and License Number are required for AAMVA Driver License format.');
+      }
+      return buildAamvaDriverLicensePayload(aamvaFields);
+    }
     if (activeTab === 'url') {
       if (!verificationUrl.trim()) {
         throw new Error('Please enter a valid verification URL.');
@@ -103,7 +128,7 @@ export default function GeneratePage() {
       return verificationUrl.trim();
     }
     return '';
-  }, [activeTab, rawText, jsonText, employeeFields, verificationUrl]);
+  }, [activeTab, rawText, jsonText, employeeFields, aamvaFields, verificationUrl]);
 
   // Main barcode generation trigger
   const updateBarcode = useCallback(async () => {
@@ -131,7 +156,7 @@ export default function GeneratePage() {
       const result = await generatePdf417(
         {
           format: 'pdf417',
-          encoding: activeTab,
+          encoding: activeTab === 'aamva' ? 'text' : activeTab,
           data: payloadStr,
         },
         options
@@ -155,19 +180,17 @@ export default function GeneratePage() {
     return () => clearTimeout(timer);
   }, [updateBarcode]);
 
-  // Save to history on manual request or export
   const handleSaveToHistory = () => {
     if (!barcodeResult) return;
     saveHistoryItem({
       type: 'generate',
       format: 'pdf417',
       rawPayload: barcodeResult.rawPayload,
-      title: activeTab === 'employee' ? `Credential (${employeeFields.name})` : `PDF417 Barcode (${activeTab})`,
+      title: activeTab === 'aamva' ? `AAMVA License (${aamvaFields.firstName} ${aamvaFields.lastName})` : activeTab === 'employee' ? `Credential (${employeeFields.name})` : `PDF417 Barcode (${activeTab})`,
       subtitle: `${barcodeResult.dataSizeBytes} bytes • EC Level ${barcodeResult.ecLevel}`,
     });
   };
 
-  // Export handlers
   const downloadPng = () => {
     if (!barcodeResult) return;
     handleSaveToHistory();
@@ -198,7 +221,6 @@ export default function GeneratePage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (e) {
-      // Fallback: copy raw payload
       await navigator.clipboard.writeText(barcodeResult.rawPayload);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -213,7 +235,7 @@ export default function GeneratePage() {
           <Barcode className="w-8 h-8 text-blue-400" /> PDF417 Barcode Generator
         </h1>
         <p className="text-gray-400 text-sm mt-1">
-          Create high-precision 2D PDF417 barcodes from arbitrary raw text, structured JSON, employee ID credentials, or verification URLs.
+          Create high-precision 2D PDF417 barcodes from raw text, JSON, employee credentials, AAMVA US Driver&apos;s Licenses, or verification URLs.
         </p>
       </div>
 
@@ -221,46 +243,56 @@ export default function GeneratePage() {
         {/* Left Column: Input Form & Controls */}
         <div className="lg:col-span-7 space-y-6">
           {/* Tab Selector */}
-          <div className="glass-panel p-1.5 rounded-2xl border border-gray-800 flex flex-wrap sm:flex-nowrap gap-1">
+          <div className="glass-panel p-1.5 rounded-2xl border border-gray-800 flex flex-wrap gap-1">
             <button
               onClick={() => setActiveTab('text')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'text'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
               }`}
             >
-              <FileText className="w-4 h-4" /> Raw Text
+              <FileText className="w-3.5 h-3.5" /> Raw Text
             </button>
             <button
               onClick={() => setActiveTab('json')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'json'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
               }`}
             >
-              <Code className="w-4 h-4" /> Structured JSON
+              <Code className="w-3.5 h-3.5" /> JSON
             </button>
             <button
               onClick={() => setActiveTab('employee')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'employee'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
               }`}
             >
-              <UserCheck className="w-4 h-4" /> Employee ID
+              <UserCheck className="w-3.5 h-3.5" /> Company ID
+            </button>
+            <button
+              onClick={() => setActiveTab('aamva')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'aamva'
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
+              }`}
+            >
+              <IdCard className="w-3.5 h-3.5" /> AAMVA DL
             </button>
             <button
               onClick={() => setActiveTab('url')}
-              className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs sm:text-sm font-semibold transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'url'
                   ? 'bg-blue-600 text-white shadow-md'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
               }`}
             >
-              <Link2 className="w-4 h-4" /> Verification URL
+              <Link2 className="w-3.5 h-3.5" /> URL
             </button>
           </div>
 
@@ -361,24 +393,6 @@ export default function GeneratePage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Email</label>
-                    <input
-                      type="email"
-                      value={employeeFields.email}
-                      onChange={(e) => setEmployeeFields({ ...employeeFields, email: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Issue Date</label>
-                    <input
-                      type="date"
-                      value={employeeFields.issuedAt}
-                      onChange={(e) => setEmployeeFields({ ...employeeFields, issuedAt: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-sm text-white focus:border-blue-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-xs font-semibold text-gray-300 mb-1">Expiration Date</label>
                     <input
                       type="date"
@@ -389,7 +403,6 @@ export default function GeneratePage() {
                   </div>
                 </div>
 
-                {/* Digital Signature Field */}
                 <div className="pt-2 border-t border-gray-800/80">
                   <div className="flex items-center gap-2 mb-1.5">
                     <Lock className="w-3.5 h-3.5 text-emerald-400" />
@@ -404,9 +417,98 @@ export default function GeneratePage() {
                     onChange={(e) => setEmployeeFields({ ...employeeFields, signKey: e.target.value })}
                     className="w-full bg-gray-900/80 border border-emerald-500/30 rounded-xl px-3.5 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
-                    Adds a cryptographic signature hash so decoders can verify data authenticity.
-                  </p>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'aamva' && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
+                  <span className="text-xs font-bold text-purple-300 uppercase flex items-center gap-1.5">
+                    <IdCard className="w-4 h-4 text-purple-400" /> US/Canada AAMVA Driver&apos;s License Payload Generator
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      First Name <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={aamvaFields.firstName}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, firstName: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      Last Name <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={aamvaFields.lastName}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, lastName: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">
+                      License / Customer # <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={aamvaFields.licenseNumber}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, licenseNumber: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">State / Jurisdiction</label>
+                    <input
+                      type="text"
+                      maxLength={2}
+                      value={aamvaFields.state}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, state: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={aamvaFields.dateOfBirth}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, dateOfBirth: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">Expiration Date</label>
+                    <input
+                      type="date"
+                      value={aamvaFields.expirationDate}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, expirationDate: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">Street Address</label>
+                    <input
+                      type="text"
+                      value={aamvaFields.streetAddress}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, streetAddress: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-300 mb-1">City</label>
+                    <input
+                      type="text"
+                      value={aamvaFields.city}
+                      onChange={(e) => setAamvaFields({ ...aamvaFields, city: e.target.value })}
+                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -423,9 +525,6 @@ export default function GeneratePage() {
                   placeholder="https://company.com/verify/EMP-000123"
                   className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-4 py-3 text-sm text-blue-400 focus:border-blue-500 focus:outline-none"
                 />
-                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300 leading-relaxed">
-                  <span className="font-semibold text-white">Recommended Security Practice:</span> Encoding a lightweight verification URL into the barcode avoids storing raw personal identifiable information (PII) directly on physical badges.
-                </div>
               </div>
             )}
           </div>
@@ -445,7 +544,6 @@ export default function GeneratePage() {
             {showAdvanced && (
               <div className="p-6 border-t border-gray-800 space-y-5 bg-gray-900/50">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* EC Level */}
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
                       Error Correction Level (0 - 8)
@@ -455,7 +553,7 @@ export default function GeneratePage() {
                       onChange={(e) => setEcLevel(Number(e.target.value))}
                       className="w-full bg-gray-900 border border-gray-800 rounded-xl px-3 py-2 text-xs text-white"
                     >
-                      <option value={0}>Level 0 (Minimal redundancy)</option>
+                      <option value={0}>Level 0</option>
                       <option value={1}>Level 1</option>
                       <option value={2}>Level 2</option>
                       <option value={3}>Level 3 (Recommended Default)</option>
@@ -465,7 +563,6 @@ export default function GeneratePage() {
                     </select>
                   </div>
 
-                  {/* Columns */}
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
                       Data Columns (1 - 30)
@@ -484,7 +581,6 @@ export default function GeneratePage() {
                     </select>
                   </div>
 
-                  {/* Quiet Zone Padding */}
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
                       Quiet Zone Margin: {padding}px
@@ -499,7 +595,6 @@ export default function GeneratePage() {
                     />
                   </div>
 
-                  {/* Barcode Scale */}
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
                       Resolution Scale: {scale}x
@@ -513,48 +608,6 @@ export default function GeneratePage() {
                       className="w-full accent-blue-500"
                     />
                   </div>
-
-                  {/* Foreground Color */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Foreground Bar Color</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={foreground}
-                        onChange={(e) => setForeground(e.target.value)}
-                        className="w-8 h-8 rounded border-none bg-transparent cursor-pointer"
-                      />
-                      <span className="text-xs font-mono text-gray-300">{foreground}</span>
-                    </div>
-                  </div>
-
-                  {/* Background Color */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Background Color</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={background}
-                        onChange={(e) => setBackground(e.target.value)}
-                        className="w-8 h-8 rounded border-none bg-transparent cursor-pointer"
-                      />
-                      <span className="text-xs font-mono text-gray-300">{background}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Compact Toggle */}
-                <div className="flex items-center gap-3 pt-2">
-                  <input
-                    type="checkbox"
-                    id="compact-toggle"
-                    checked={compact}
-                    onChange={(e) => setCompact(e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-800 text-blue-600 focus:ring-blue-500 accent-blue-500"
-                  />
-                  <label htmlFor="compact-toggle" className="text-xs text-gray-300 font-medium">
-                    Use Compact (Truncated) PDF417 Format (Omits right stop bar to save horizontal space)
-                  </label>
                 </div>
               </div>
             )}
@@ -583,7 +636,6 @@ export default function GeneratePage() {
               )}
             </div>
 
-            {/* Canvas / Image Display */}
             {isGenerating ? (
               <div className="flex flex-col items-center gap-3 py-12">
                 <RefreshCw className="w-8 h-8 text-blue-400 animate-spin" />
@@ -597,7 +649,6 @@ export default function GeneratePage() {
               </div>
             ) : barcodeResult ? (
               <div className="space-y-6 w-full flex flex-col items-center">
-                {/* Barcode Graphic */}
                 <div
                   className="p-4 rounded-xl shadow-2xl transition-all max-w-full overflow-x-auto flex justify-center"
                   style={{ backgroundColor: background }}
@@ -610,7 +661,6 @@ export default function GeneratePage() {
                   />
                 </div>
 
-                {/* Metadata Pill Box */}
                 <div className="grid grid-cols-3 gap-2 w-full text-center text-xs text-gray-400 bg-gray-900/60 p-3 rounded-xl border border-gray-800">
                   <div>
                     <span className="block text-[10px] text-gray-500 uppercase">Payload Size</span>
@@ -628,7 +678,6 @@ export default function GeneratePage() {
                   </div>
                 </div>
 
-                {/* Export Buttons */}
                 <div className="w-full space-y-2 pt-2">
                   <div className="grid grid-cols-2 gap-2">
                     <button

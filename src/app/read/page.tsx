@@ -14,8 +14,10 @@ import {
   RefreshCw,
   XCircle,
   FileCode,
-  Crop,
-  Maximize2
+  IdCard,
+  User,
+  MapPin,
+  Calendar
 } from 'lucide-react';
 import { decodePdf417 } from '@/lib/pdf417/decoder';
 import { DecodedBarcode } from '@/lib/pdf417/types';
@@ -23,33 +25,17 @@ import { validateEmployeeCredential } from '@/lib/credentials/validation';
 import { ValidationResult } from '@/lib/credentials/schema';
 import { saveHistoryItem } from '@/lib/history';
 import { escapeHtml } from '@/lib/security/sanitization';
+import { InteractiveImageCropper } from '@/components/ui/InteractiveImageCropper';
 
 export default function ReadPage() {
   const [activeMode, setActiveMode] = useState<'upload' | 'camera'>('upload');
 
-  // File Upload & Cropper State
+  // File Upload State
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [loadedImageElement, setLoadedImageElement] = useState<HTMLImageElement | null>(null);
   const [isDecoding, setIsDecoding] = useState<boolean>(false);
-
-  // Interactive Crop Box State (percentage 0 to 100)
-  const [cropBox, setCropBox] = useState<{ x: number; y: number; w: number; h: number }>({
-    x: 5,
-    y: 10,
-    w: 90,
-    h: 45, // Default focus on top 45% of card
-  });
-  const [isCropping, setIsCropping] = useState<boolean>(false);
-  const cropContainerRef = useRef<HTMLDivElement | null>(null);
-  const isDraggingCropRef = useRef<boolean>(false);
-  const dragStartRef = useRef<{ startX: number; startY: number; boxX: number; boxY: number }>({
-    startX: 0,
-    startY: 0,
-    boxX: 0,
-    boxY: 0,
-  });
 
   // Camera Scanner State
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -85,7 +71,7 @@ export default function ReadPage() {
     img.src = objectUrl;
   };
 
-  // Attempt Decoding from HTMLImageElement, Canvas or Cropped ROI
+  // Attempt Decoding from HTMLImageElement or Cropped Canvas
   const attemptDecodeSource = async (
     source: HTMLImageElement | HTMLCanvasElement
   ) => {
@@ -108,47 +94,14 @@ export default function ReadPage() {
       }
     } catch (err: unknown) {
       const error = err as Error;
-      setErrorMsg(error?.message || 'No readable PDF417 barcode found. Try adjusting the crop area over the barcode.');
+      setErrorMsg(error?.message || 'No readable PDF417 barcode found. Use the drag handles on the crop box to frame the barcode.');
       setDecodedResults(null);
     } finally {
       setIsDecoding(false);
     }
   };
 
-  // Crop & Decode Selected Region of Uploaded Image
-  const decodeCroppedRegion = async () => {
-    if (!loadedImageElement) return;
-
-    const canvas = document.createElement('canvas');
-    const naturalWidth = loadedImageElement.naturalWidth || loadedImageElement.width;
-    const naturalHeight = loadedImageElement.naturalHeight || loadedImageElement.height;
-
-    const realX = Math.max(0, Math.floor((cropBox.x / 100) * naturalWidth));
-    const realY = Math.max(0, Math.floor((cropBox.y / 100) * naturalHeight));
-    const realW = Math.min(naturalWidth - realX, Math.floor((cropBox.w / 100) * naturalWidth));
-    const realH = Math.min(naturalHeight - realY, Math.floor((cropBox.h / 100) * naturalHeight));
-
-    canvas.width = realW;
-    canvas.height = realH;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(loadedImageElement, realX, realY, realW, realH, 0, 0, realW, realH);
-      await attemptDecodeSource(canvas);
-    }
-  };
-
-  // Preset Crop Areas
-  const setCropPreset = (type: 'top' | 'full' | 'middle') => {
-    if (type === 'top') {
-      setCropBox({ x: 5, y: 5, w: 90, h: 45 });
-    } else if (type === 'middle') {
-      setCropBox({ x: 5, y: 25, w: 90, h: 50 });
-    } else {
-      setCropBox({ x: 0, y: 0, w: 100, h: 100 });
-    }
-  };
-
-  // Run Credential Validation on decoded raw string
+  // Run Credential / AAMVA Validation on decoded raw string
   const runCredentialValidation = async (rawText: string, key?: string) => {
     const res = await validateEmployeeCredential(rawText, key);
     setValidationResult(res);
@@ -246,7 +199,6 @@ export default function ReadPage() {
     const vW = video.videoWidth;
     const vH = video.videoHeight;
 
-    // Extract both central ROI rectangle AND full frame
     const roiW = Math.floor(vW * 0.85);
     const roiH = Math.floor(vH * 0.45);
     const roiX = Math.floor((vW - roiW) / 2);
@@ -310,12 +262,12 @@ export default function ReadPage() {
           <Scan className="w-8 h-8 text-blue-400" /> PDF417 Barcode Reader & Scanner
         </h1>
         <p className="text-gray-400 text-sm mt-1">
-          Decode PDF417 barcodes from uploaded ID images or live video camera streams. Features interactive crop tool and multi-region scanner for high-density Driver&apos;s License IDs.
+          Decode PDF417 barcodes from uploaded images or live video camera streams. Features interactive manual drag-to-crop tool and AAMVA US/Canada Driver&apos;s License decoder.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Upload / Camera Controls & Interactive Cropper */}
+        {/* Left Column: Upload / Camera Controls & Manual Interactive Cropper */}
         <div className="lg:col-span-6 space-y-6">
           {/* Mode Switcher */}
           <div className="glass-panel p-1.5 rounded-2xl border border-gray-800 flex gap-1">
@@ -347,7 +299,7 @@ export default function ReadPage() {
             </button>
           </div>
 
-          {/* Mode A: Drag & Drop File Upload & Interactive Cropper */}
+          {/* Mode A: Drag & Drop File Upload & Manual Interactive Cropper */}
           {activeMode === 'upload' && (
             <div className="space-y-4">
               <div
@@ -372,84 +324,24 @@ export default function ReadPage() {
 
                 {imagePreviewUrl ? (
                   <div className="space-y-4 w-full flex flex-col items-center">
-                    {/* Interactive Cropper View */}
-                    <div
-                      ref={cropContainerRef}
-                      className="relative rounded-xl overflow-hidden border border-gray-800 shadow-xl max-h-[340px] max-w-full bg-black flex items-center justify-center select-none"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={imagePreviewUrl}
-                        alt="Uploaded Barcode Preview"
-                        className="max-h-[340px] object-contain pointer-events-none"
+                    {/* Manual Drag-to-Crop Canvas Tool */}
+                    <InteractiveImageCropper
+                      imageSrc={imagePreviewUrl}
+                      onCropConfirm={(croppedCanvas) => attemptDecodeSource(croppedCanvas)}
+                      onFullScan={() => {
+                        if (loadedImageElement) attemptDecodeSource(loadedImageElement);
+                      }}
+                    />
+
+                    <label className="py-2.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold border border-gray-700 cursor-pointer flex items-center gap-1.5 mt-2">
+                      <Upload className="w-3.5 h-3.5" /> Choose Different Image
+                      <input
+                        type="file"
+                        accept="image/png, image/jpeg, image/webp, image/bmp"
+                        onChange={handleFileChange}
+                        className="hidden"
                       />
-
-                      {/* Interactive Bounding Box Overlay */}
-                      <div
-                        className="absolute border-2 border-blue-400 bg-blue-500/15 shadow-[0_0_20px_rgba(59,130,246,0.4)] flex flex-col justify-between"
-                        style={{
-                          left: `${cropBox.x}%`,
-                          top: `${cropBox.y}%`,
-                          width: `${cropBox.w}%`,
-                          height: `${cropBox.h}%`,
-                        }}
-                      >
-                        <div className="bg-blue-600/90 text-white text-[9px] font-bold px-2 py-0.5 self-start rounded-br">
-                          PDF417 Crop Focus Region
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      <button
-                        onClick={() => setCropPreset('top')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                          cropBox.y === 5 && cropBox.h === 45
-                            ? 'bg-blue-600/30 text-blue-300 border-blue-500'
-                            : 'bg-gray-900 text-gray-400 border-gray-800'
-                        }`}
-                      >
-                        Focus Top 50% (ID Barcode)
-                      </button>
-                      <button
-                        onClick={() => setCropPreset('middle')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                          cropBox.y === 25 && cropBox.h === 50
-                            ? 'bg-blue-600/30 text-blue-300 border-blue-500'
-                            : 'bg-gray-900 text-gray-400 border-gray-800'
-                        }`}
-                      >
-                        Focus Middle
-                      </button>
-                      <button
-                        onClick={() => setCropPreset('full')}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${
-                          cropBox.w === 100 && cropBox.h === 100
-                            ? 'bg-blue-600/30 text-blue-300 border-blue-500'
-                            : 'bg-gray-900 text-gray-400 border-gray-800'
-                        }`}
-                      >
-                        Full Card (100%)
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-1">
-                      <button
-                        onClick={decodeCroppedRegion}
-                        className="py-2.5 px-5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition-all shadow-md shadow-blue-600/30 flex items-center gap-2"
-                      >
-                        <Crop className="w-4 h-4" /> Scan Focused Crop Box
-                      </button>
-                      <label className="py-2.5 px-4 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold border border-gray-700 cursor-pointer flex items-center gap-1.5">
-                        <Upload className="w-3.5 h-3.5" /> Change Image
-                        <input
-                          type="file"
-                          accept="image/png, image/jpeg, image/webp, image/bmp"
-                          onChange={handleFileChange}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
+                    </label>
                   </div>
                 ) : (
                   <div className="space-y-3 pointer-events-none">
@@ -493,7 +385,7 @@ export default function ReadPage() {
                       <div className="w-[85%] h-[45%] border-2 border-blue-500 rounded-xl relative shadow-[0_0_30px_rgba(59,130,246,0.6)]">
                         <div className="absolute inset-x-0 h-0.5 bg-blue-400 shadow-[0_0_12px_#60a5fa] animate-pulse top-1/2"></div>
                         <div className="absolute top-2 left-2 bg-blue-600/80 text-white text-[9px] font-bold px-2 py-0.5 rounded">
-                          PDF417 Camera ROI Zone
+                          PDF417 Camera Focus Zone
                         </div>
                       </div>
                       <span className="text-xs font-semibold text-white mt-3 bg-black/70 px-3 py-1 rounded-full backdrop-blur-md">
@@ -543,7 +435,7 @@ export default function ReadPage() {
           )}
         </div>
 
-        {/* Right Column: Decoding Result & Structured Credential Validator */}
+        {/* Right Column: Decoding Result & Structured Credential / AAMVA Inspector */}
         <div className="lg:col-span-6 space-y-6">
           <div className="glass-panel p-6 rounded-2xl border border-gray-800 space-y-6 min-h-[420px]">
             <div className="flex items-center justify-between border-b border-gray-800 pb-3">
@@ -553,7 +445,9 @@ export default function ReadPage() {
               {validationResult && (
                 <span
                   className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border flex items-center gap-1 ${
-                    validationResult.status === 'AUTHENTICATED'
+                    validationResult.aamvaLicense
+                      ? 'bg-purple-500/10 text-purple-300 border-purple-500/30'
+                      : validationResult.status === 'AUTHENTICATED'
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                       : validationResult.status === 'VALID'
                       ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
@@ -562,10 +456,8 @@ export default function ReadPage() {
                       : 'bg-red-500/10 text-red-400 border-red-500/30'
                   }`}
                 >
-                  {validationResult.status === 'AUTHENTICATED' && <CheckCircle2 className="w-3 h-3" />}
-                  {validationResult.status === 'EXPIRED' && <AlertTriangle className="w-3 h-3" />}
-                  {validationResult.status === 'UNAUTHENTICATED' && <ShieldAlert className="w-3 h-3" />}
-                  Status: {validationResult.status}
+                  {validationResult.aamvaLicense && <IdCard className="w-3 h-3 text-purple-400" />}
+                  {validationResult.aamvaLicense ? "AAMVA Driver's License" : `Status: ${validationResult.status}`}
                 </span>
               )}
             </div>
@@ -581,7 +473,7 @@ export default function ReadPage() {
                 <h4 className="text-sm font-semibold text-red-300">Decoder Warning</h4>
                 <p className="text-xs text-red-400 leading-relaxed">{errorMsg}</p>
                 <div className="pt-2 text-[11px] text-gray-400">
-                  <span className="font-semibold text-white">Tip for ID Badges:</span> Click &quot;Focus Top 50%&quot; or crop closely around the PDF417 barcode to strip out surrounding text & 1D barcodes.
+                  <span className="font-semibold text-white">Tip:</span> Drag the crop box handles tightly over the top PDF417 barcode to focus the scanner.
                 </div>
               </div>
             ) : decodedResults && decodedResults.length > 0 ? (
@@ -605,7 +497,81 @@ export default function ReadPage() {
                   </button>
                 </div>
 
-                {/* Structured Credential View if matching company credential */}
+                {/* View A: AAMVA US/Canada Driver's License Inspector */}
+                {validationResult && validationResult.aamvaLicense ? (
+                  <div className="p-5 rounded-2xl bg-purple-950/30 border border-purple-500/30 space-y-4">
+                    <div className="flex items-center justify-between border-b border-purple-500/20 pb-3">
+                      <div className="flex items-center gap-2">
+                        <IdCard className="w-5 h-5 text-purple-400" />
+                        <span className="text-xs font-bold text-purple-200 uppercase tracking-wider">
+                          US/Canada AAMVA Driver&apos;s License Record
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono text-purple-300 font-bold bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
+                        {validationResult.aamvaLicense.state} {validationResult.aamvaLicense.country}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">First Name</span>
+                        <span className="font-semibold text-white">{validationResult.aamvaLicense.firstName || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Last Name</span>
+                        <span className="font-semibold text-white">{validationResult.aamvaLicense.lastName || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Customer / License #</span>
+                        <span className="font-mono font-bold text-purple-300">{validationResult.aamvaLicense.licenseNumber || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Date of Birth</span>
+                        <span className="font-semibold text-white">{validationResult.aamvaLicense.dateOfBirth || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Issue Date</span>
+                        <span className="font-semibold text-white">{validationResult.aamvaLicense.issueDate || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Expiration Date</span>
+                        <span
+                          className={`font-semibold ${
+                            validationResult.status === 'EXPIRED' ? 'text-red-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          {validationResult.aamvaLicense.expirationDate || '—'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Sex / Gender</span>
+                        <span className="font-semibold text-white">{validationResult.aamvaLicense.gender || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-gray-500 text-[10px] uppercase">Height / Eye Color</span>
+                        <span className="font-semibold text-white">
+                          {validationResult.aamvaLicense.height || '—'} / {validationResult.aamvaLicense.eyeColor || '—'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-purple-500/20 text-xs">
+                      <span className="block text-gray-500 text-[10px] uppercase">Residential Address</span>
+                      <p className="font-medium text-gray-200 mt-0.5">
+                        {[
+                          validationResult.aamvaLicense.streetAddress,
+                          validationResult.aamvaLicense.city,
+                          validationResult.aamvaLicense.state,
+                          validationResult.aamvaLicense.postalCode,
+                        ]
+                          .filter(Boolean)
+                          .join(', ')}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* View B: Company Credential Inspector */}
                 {validationResult && validationResult.credential ? (
                   <div className="space-y-4">
                     <div className="p-4 rounded-xl bg-blue-950/40 border border-blue-500/20 space-y-3">
