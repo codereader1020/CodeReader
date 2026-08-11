@@ -1,0 +1,26 @@
+[
+  {
+    "type": "company_employee_id",
+    "version": 1,
+    "employeeId": "EMP-001",
+    "name": "John Doe",
+    "company": "Acme Corp",
+    "department": "Engineering",
+    "role": "Software Engineer",
+    "email": "john.doe@acme.com",
+    "issuedAt": "2026-08-09",
+    "expiresAt": "2027-08-09"
+  },
+  {
+    "type": "company_employee_id",
+    "version": 1,
+    "employeeId": "EMP-002",
+    "name": "Jane Smith",
+    "company": "Acme Corp",
+    "department": "Finance",
+    "role": "Financial Analyst",
+    "email": "jane.smith@acme.com",
+    "issuedAt": "2026-08-09",
+    "expiresAt": "2027-08-09"
+  }
+]

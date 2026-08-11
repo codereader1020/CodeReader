@@ -1,0 +1,6 @@
+employeeId,name,company,department,role,email,issuedAt,expiresAt
+EMP-001,John Doe,Acme Corp,Engineering,Software Engineer,john.doe@acme.com,2026-08-09,2027-08-09
+EMP-002,Jane Smith,Acme Corp,Finance,Financial Analyst,jane.smith@acme.com,2026-08-09,2027-08-09
+EMP-003,Michael Brown,Acme Corp,HR,HR Manager,michael.brown@acme.com,2026-08-09,2027-08-09
+EMP-004,Emily Davis,Acme Corp,Marketing,Product Marketing Lead,emily.davis@acme.com,2026-08-09,2027-08-09
+EMP-005,Robert Wilson,Acme Corp,Operations,Operations Director,robert.wilson@acme.com,2026-08-09,2027-08-09
