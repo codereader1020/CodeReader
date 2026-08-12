@@ -15,7 +15,10 @@ import {
   Link2,
   RefreshCw,
   Lock,
-  IdCard
+  IdCard,
+  Plus,
+  Trash2,
+  Info
 } from 'lucide-react';
 import { generatePdf417 } from '@/lib/pdf417/encoder';
 import { EncodedBarcode, Pdf417Options } from '@/lib/pdf417/types';
@@ -76,6 +79,25 @@ export default function GeneratePage() {
     postalCode: '123450000',
   });
 
+  // AAMVA custom extra fields (arbitrary field code + value pairs)
+  interface AamvaCustomField { id: string; code: string; value: string; }
+  const [aamvaCustomFields, setAamvaCustomFields] = useState<AamvaCustomField[]>([]);
+
+  const addCustomField = () => {
+    setAamvaCustomFields((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), code: '', value: '' },
+    ]);
+  };
+  const removeCustomField = (id: string) => {
+    setAamvaCustomFields((prev) => prev.filter((f) => f.id !== id));
+  };
+  const updateCustomField = (id: string, key: 'code' | 'value', val: string) => {
+    setAamvaCustomFields((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, [key]: val } : f))
+    );
+  };
+
   // URL state
   const [verificationUrl, setVerificationUrl] = useState('https://example.com/verify/EMP-000123');
 
@@ -119,7 +141,14 @@ export default function GeneratePage() {
       if (!aamvaFields.lastName || !aamvaFields.firstName || !aamvaFields.licenseNumber) {
         throw new Error('First Name, Last Name, and License Number are required for AAMVA Driver License format.');
       }
-      return buildAamvaDriverLicensePayload(aamvaFields);
+      // Merge valid custom fields into the payload
+      const extraFields: Record<string, string> = {};
+      for (const cf of aamvaCustomFields) {
+        if (cf.code.trim().length >= 2 && cf.value.trim()) {
+          extraFields[cf.code.trim().toUpperCase()] = cf.value.trim();
+        }
+      }
+      return buildAamvaDriverLicensePayload({ ...aamvaFields, ...extraFields });
     }
     if (activeTab === 'url') {
       if (!verificationUrl.trim()) {
@@ -128,7 +157,7 @@ export default function GeneratePage() {
       return verificationUrl.trim();
     }
     return '';
-  }, [activeTab, rawText, jsonText, employeeFields, aamvaFields, verificationUrl]);
+  }, [activeTab, rawText, jsonText, employeeFields, aamvaFields, aamvaCustomFields, verificationUrl]);
 
   // Main barcode generation trigger
   const updateBarcode = useCallback(async () => {
@@ -422,92 +451,210 @@ export default function GeneratePage() {
             )}
 
             {activeTab === 'aamva' && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-purple-500/20 pb-2">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-purple-500/20 pb-3">
                   <span className="text-xs font-bold text-purple-300 uppercase flex items-center gap-1.5">
-                    <IdCard className="w-4 h-4 text-purple-400" /> US/Canada AAMVA Driver&apos;s License Payload Generator
+                    <IdCard className="w-4 h-4 text-purple-400" /> US/Canada AAMVA Driver&apos;s License
                   </span>
+                  <span className="text-[10px] text-purple-400/60 font-mono">AAMVA 2020 Standard</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">
-                      First Name <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={aamvaFields.firstName}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, firstName: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
+                {/* — IDENTITY — */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Identity</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        First Name <span className="text-red-400">*</span> <span className="text-gray-600 font-mono">(DAC)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.firstName}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, firstName: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Last Name <span className="text-red-400">*</span> <span className="text-gray-600 font-mono">(DCS)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.lastName}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, lastName: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Middle Name <span className="text-gray-600 font-mono">(DAD)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.middleName}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, middleName: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        License / Customer # <span className="text-red-400">*</span> <span className="text-gray-600 font-mono">(DAQ)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.licenseNumber}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, licenseNumber: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">
-                      Last Name <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={aamvaFields.lastName}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, lastName: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
+                </div>
+
+                {/* — PHYSICAL — */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Physical Description</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Sex / Gender <span className="text-gray-600 font-mono">(DBC)</span>
+                      </label>
+                      <select value={aamvaFields.gender}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, gender: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none">
+                        <option value="Male">Male (1)</option>
+                        <option value="Female">Female (2)</option>
+                        <option value="Not Specified">Not Specified (9)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Height <span className="text-gray-600 font-mono">(DAU)</span>
+                      </label>
+                      <input type="text" placeholder="069 in" value={aamvaFields.height}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, height: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Eye Color <span className="text-gray-600 font-mono">(DAY)</span>
+                      </label>
+                      <select value={aamvaFields.eyeColor}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, eyeColor: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none">
+                        {['BLK','BLU','BRO','GRY','GRN','HAZ','MAR','PNK','DIC','UNK'].map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">
-                      License / Customer # <span className="text-red-400">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={aamvaFields.licenseNumber}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, licenseNumber: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
+                </div>
+
+                {/* — DATES — */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Dates</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Date of Birth <span className="text-gray-600 font-mono">(DBB)</span>
+                      </label>
+                      <input type="date" value={aamvaFields.dateOfBirth}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, dateOfBirth: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Issue Date <span className="text-gray-600 font-mono">(DBD)</span>
+                      </label>
+                      <input type="date" value={aamvaFields.issueDate}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, issueDate: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Expiration Date <span className="text-gray-600 font-mono">(DBA)</span>
+                      </label>
+                      <input type="date" value={aamvaFields.expirationDate}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, expirationDate: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">State / Jurisdiction</label>
-                    <input
-                      type="text"
-                      maxLength={2}
-                      value={aamvaFields.state}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, state: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
+                </div>
+
+                {/* — ADDRESS — */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Address</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        Street Address <span className="text-gray-600 font-mono">(DAG)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.streetAddress}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, streetAddress: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-300 mb-1">
+                        City <span className="text-gray-600 font-mono">(DAI)</span>
+                      </label>
+                      <input type="text" value={aamvaFields.city}
+                        onChange={(e) => setAamvaFields({ ...aamvaFields, city: e.target.value })}
+                        className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-300 mb-1">
+                          State <span className="text-gray-600 font-mono">(DAJ)</span>
+                        </label>
+                        <input type="text" maxLength={2} value={aamvaFields.state}
+                          onChange={(e) => setAamvaFields({ ...aamvaFields, state: e.target.value })}
+                          className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-300 mb-1">
+                          ZIP Code <span className="text-gray-600 font-mono">(DAK)</span>
+                        </label>
+                        <input type="text" maxLength={11} value={aamvaFields.postalCode}
+                          onChange={(e) => setAamvaFields({ ...aamvaFields, postalCode: e.target.value })}
+                          className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono" />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Date of Birth</label>
-                    <input
-                      type="date"
-                      value={aamvaFields.dateOfBirth}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, dateOfBirth: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
-                    />
+                </div>
+
+                {/* — CUSTOM EXTRA FIELDS — */}
+                <div className="space-y-2 pt-1 border-t border-purple-500/15">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1.5">
+                      Custom AAMVA Fields
+                      <span title="Add any additional AAMVA field code (e.g. DCF, ZNB) and its value">
+                        <Info className="w-3 h-3 text-gray-600" />
+                      </span>
+                    </p>
+                    <button onClick={addCustomField}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-[11px] font-semibold transition-colors">
+                      <Plus className="w-3 h-3" /> Add Field
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Expiration Date</label>
-                    <input
-                      type="date"
-                      value={aamvaFields.expirationDate}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, expirationDate: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">Street Address</label>
-                    <input
-                      type="text"
-                      value={aamvaFields.streetAddress}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, streetAddress: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-300 mb-1">City</label>
-                    <input
-                      type="text"
-                      value={aamvaFields.city}
-                      onChange={(e) => setAamvaFields({ ...aamvaFields, city: e.target.value })}
-                      className="w-full bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none font-mono uppercase"
-                    />
+
+                  {aamvaCustomFields.length === 0 && (
+                    <p className="text-[11px] text-gray-600 italic">
+                      Click &ldquo;Add Field&rdquo; to include additional AAMVA codes (e.g. DCF, DCB, ZNB, DDK).
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    {aamvaCustomFields.map((cf) => (
+                      <div key={cf.id} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Code (e.g. DCF)"
+                          maxLength={3}
+                          value={cf.code}
+                          onChange={(e) => updateCustomField(cf.id, 'code', e.target.value.toUpperCase())}
+                          className="w-24 bg-gray-900/80 border border-purple-500/30 rounded-xl px-3 py-2 text-xs text-purple-300 font-mono focus:border-purple-500 focus:outline-none uppercase"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Value"
+                          value={cf.value}
+                          onChange={(e) => updateCustomField(cf.id, 'value', e.target.value)}
+                          className="flex-1 bg-gray-900/80 border border-gray-800 rounded-xl px-3.5 py-2 text-xs text-white focus:border-purple-500 focus:outline-none"
+                        />
+                        <button onClick={() => removeCustomField(cf.id)}
+                          className="p-2 rounded-lg text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>

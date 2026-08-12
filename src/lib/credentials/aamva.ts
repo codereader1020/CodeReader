@@ -127,7 +127,9 @@ export function parseAamvaDriverLicense(rawText: string): AamvaDriverLicense | n
 
 
 /**
- * Builds a standards-compliant AAMVA Driver's License PDF417 raw text payload
+ * Builds a standards-compliant AAMVA Driver's License PDF417 raw text payload.
+ * Accepts all standard fields plus any extra arbitrary AAMVA code-value pairs
+ * via the index signature (e.g. { DCF: 'NONE', ZNB: 'ENCRYPTED...' }).
  */
 export function buildAamvaDriverLicensePayload(fields: {
   firstName: string;
@@ -135,7 +137,7 @@ export function buildAamvaDriverLicensePayload(fields: {
   middleName?: string;
   licenseNumber: string;
   state: string;
-  dateOfBirth: string; // YYYY-MM-DD or MMDDYYYY
+  dateOfBirth: string;
   expirationDate: string;
   issueDate?: string;
   gender?: string;
@@ -144,12 +146,12 @@ export function buildAamvaDriverLicensePayload(fields: {
   streetAddress?: string;
   city?: string;
   postalCode?: string;
+  [extraCode: string]: string | undefined;
 }): string {
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '01012026';
     const cleaned = dateStr.replace(/[^0-9]/g, '');
     if (cleaned.length === 8 && (dateStr.includes('-') || dateStr.includes('/'))) {
-      // YYYY-MM-DD -> MMDDYYYY
       const parts = dateStr.split(/[-/]/);
       if (parts.length === 3 && parts[0].length === 4) {
         return `${parts[1]}${parts[2]}${parts[0]}`;
@@ -161,11 +163,29 @@ export function buildAamvaDriverLicensePayload(fields: {
   const dob = formatDate(fields.dateOfBirth);
   const exp = formatDate(fields.expirationDate);
   const iss = fields.issueDate ? formatDate(fields.issueDate) : '01012022';
-  const sex = fields.gender === 'Female' ? '2' : '1';
 
-  // Standard AAMVA 2020/2016 Header & Subfile structure
+  // Sex: Male=1, Female=2, Not Specified=9
+  let sex = '1';
+  if (fields.gender === 'Female') sex = '2';
+  else if (fields.gender === 'Not Specified') sex = '9';
+
+  // Known standard JS property names — already mapped to AAMVA codes above
+  const knownKeys = new Set([
+    'firstName','lastName','middleName','licenseNumber','state',
+    'dateOfBirth','expirationDate','issueDate','gender','eyeColor',
+    'height','streetAddress','city','postalCode',
+  ]);
+
+  // Collect user-added custom field codes (2-3 uppercase letters only)
+  const customLines: string[] = [];
+  for (const [key, val] of Object.entries(fields)) {
+    if (!knownKeys.has(key) && val && /^[A-Z]{2,3}$/.test(key)) {
+      customLines.push(`${key}${val}`);
+    }
+  }
+
   const header = `@\n\x1e\rANSI 636001100402DL00410396ZN04370070DLDCAD     \r`;
-  const subfile = [
+  const subfileLines = [
     `DCBNONE`,
     `DCDNONE`,
     `DBA${exp}`,
@@ -180,16 +200,15 @@ export function buildAamvaDriverLicensePayload(fields: {
     `DAG${(fields.streetAddress || '123 MAIN STREET').toUpperCase().padEnd(35, ' ')}`,
     `DAI${(fields.city || 'ANYTOWN').toUpperCase().padEnd(20, ' ')}`,
     `DAJ${fields.state.toUpperCase()}`,
-    `DAK${(fields.postalCode || '123450000').replace(/[^0-9]/g, '').padEnd(11, ' ')}`,
+    `DAK${(fields.postalCode || '000000000').replace(/[^0-9]/g, '').padEnd(11, ' ')}`,
     `DAQ${fields.licenseNumber.toUpperCase().padEnd(25, ' ')}`,
     `DCFNONE`,
     `DCGUSA`,
     `DDEN`,
     `DDFN`,
     `DDGN`,
-    `DDK1 ZNZNAMOTORIST`,
-    `ZNBENCRYPTED ELEMENT GOES HERE`,
-  ].join('\r');
+    ...customLines,
+  ];
 
-  return `${header}${subfile}`;
+  return `${header}${subfileLines.join('\r')}`;
 }
