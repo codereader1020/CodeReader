@@ -19,63 +19,102 @@ export interface AamvaDriverLicense {
 }
 
 /**
- * Parses raw decoded string into structured AAMVA Driver's License fields
+ * Parses raw decoded string into structured AAMVA Driver's License fields.
+ *
+ * Handles all real-world variants:
+ *   - Actual \r / \n control characters (standard AAMVA)
+ *   - Literal <LF> / <CR> text (some decoder HRI modes)
+ *   - Mixed whitespace padding on field values
  */
 export function parseAamvaDriverLicense(rawText: string): AamvaDriverLicense | null {
   if (!rawText) return null;
 
-  // AAMVA barcodes start with '@' and contain 'ANSI ' or 'DL' header
-  if (!rawText.startsWith('@') && !rawText.includes('ANSI ') && !rawText.includes('DLDCAD')) {
+  // Must look like an AAMVA payload
+  const upper = rawText.toUpperCase();
+  if (
+    !upper.includes('ANSI ') &&
+    !upper.includes('DLDCAD') &&
+    !(rawText.startsWith('@') && upper.includes('DCS'))
+  ) {
     return null;
   }
 
-  const getField = (code: string): string | undefined => {
-    // Search for 3-letter code followed by value up to line return or next field code
-    const regex = new RegExp(`${code}([^\\r\\n]+)`, 'g');
-    const match = regex.exec(rawText);
-    if (match && match[1]) {
-      return match[1].trim();
+  // Normalize all delimiter variants to \n so we can split into lines
+  const normalized = rawText
+    .replace(/<CR>/gi, '\r')
+    .replace(/<LF>/gi, '\n')
+    .replace(/<GS>/gi, '\x1d')
+    .replace(/<RS>/gi, '\x1e')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Split into lines and strip whitespace — each non-empty line is one field
+  const lines = normalized.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // Build a lookup map: 3-char code → value
+  const fieldMap: Record<string, string> = {};
+  for (const line of lines) {
+    // Match 3-letter/digit field code at the start of the line
+    const match = line.match(/^([A-Z]{2,3})(.+)$/);
+    if (match) {
+      const code = match[1];
+      const value = match[2].trim();
+      if (code && value && !fieldMap[code]) {
+        fieldMap[code] = value;
+      }
     }
-    return undefined;
+  }
+
+  const get = (code: string): string | undefined => {
+    const v = fieldMap[code];
+    return v ? v.trim() : undefined;
   };
 
   const parseAamvaDate = (dateStr?: string): string | undefined => {
-    if (!dateStr || dateStr.length < 8) return dateStr;
-    // Format MMDDYYYY or YYYYMMDD to YYYY-MM-DD
+    if (!dateStr) return undefined;
     const cleaned = dateStr.replace(/[^0-9]/g, '');
     if (cleaned.length === 8) {
-      // Check if starts with 19 or 20 (YYYYMMDD)
+      // YYYYMMDD
       if (cleaned.startsWith('19') || cleaned.startsWith('20')) {
         return `${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`;
       }
-      // Else assume MMDDYYYY
+      // MMDDYYYY
       return `${cleaned.substring(4, 8)}-${cleaned.substring(0, 2)}-${cleaned.substring(2, 4)}`;
     }
     return dateStr;
   };
 
-  const sexCode = getField('DBC');
+  const sexCode = get('DBC');
   let gender = 'Unspecified';
   if (sexCode === '1') gender = 'Male';
   else if (sexCode === '2') gender = 'Female';
   else if (sexCode) gender = sexCode;
 
+  // First name: DAC is primary, DCT is alternate (some states put full name in DCT)
+  let firstName = get('DAC') || get('DCT');
+  let lastName = get('DCS') || get('DAB');
+
+  // DCT sometimes holds "FIRST MIDDLE" — split if DAC not present
+  if (!get('DAC') && get('DCT') && get('DAD')) {
+    firstName = get('DCT');
+  }
+
   const license: AamvaDriverLicense = {
-    firstName: getField('DAC') || getField('DCT'),
-    lastName: getField('DCS') || getField('DAB'),
-    middleName: getField('DAD'),
-    licenseNumber: getField('DAQ'),
-    dateOfBirth: parseAamvaDate(getField('DBB')),
-    expirationDate: parseAamvaDate(getField('DBA')),
-    issueDate: parseAamvaDate(getField('DBD')),
+    firstName,
+    lastName,
+    middleName: get('DAD'),
+    licenseNumber: get('DAQ'),
+    dateOfBirth: parseAamvaDate(get('DBB')),
+    expirationDate: parseAamvaDate(get('DBA')),
+    issueDate: parseAamvaDate(get('DBD')),
     gender,
-    eyeColor: getField('DAY'),
-    height: getField('DAU'),
-    streetAddress: getField('DAG'),
-    city: getField('DAI'),
-    state: getField('DAJ'),
-    postalCode: getField('DAK'),
-    country: getField('DCG') || 'USA',
+    eyeColor: get('DAY'),
+    height: get('DAU'),
+    streetAddress: get('DAG'),
+    city: get('DAI'),
+    state: get('DAJ'),
+    postalCode: get('DAK'),
+    country: get('DCG') || 'USA',
     rawAamvaText: rawText,
   };
 
@@ -85,6 +124,7 @@ export function parseAamvaDriverLicense(rawText: string): AamvaDriverLicense | n
 
   return license;
 }
+
 
 /**
  * Builds a standards-compliant AAMVA Driver's License PDF417 raw text payload
